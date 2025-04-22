@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Videoconferência Grátis</title>
+  <style>
+    video {
+      width: 45%;
+      margin: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h2>Chamada ao vivo 1:1</h2>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+
+  <script>
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    const ws = new WebSocket(`wss://${location.host}`);
+    const peer = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      localVideo.srcObject = stream;
+      stream.getTracks().forEach(track => peer.addTrack(track, stream));
+    });
+
+    peer.ontrack = event => {
+      remoteVideo.srcObject = event.streams[0];
+    };
+
+    peer.onicecandidate = event => {
+      if (event.candidate) {
+        ws.send(JSON.stringify({ candidate: event.candidate }));
+      }
+    };
+
+    ws.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.offer) {
+        await peer.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        ws.send(JSON.stringify({ answer }));
+      } else if (msg.answer) {
+        await peer.setRemoteDescription(new RTCSessionDescription(msg.answer));
+      } else if (msg.candidate) {
+        try {
+          await peer.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        } catch (e) {
+          console.error('Erro ao adicionar ICE', e);
+        }
+      }
+    };
+
+    ws.onopen = async () => {
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      ws.send(JSON.stringify({ offer }));
+    };
+  </script>
+</body>
+</html>
